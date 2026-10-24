@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verifikasi Promo Hologram</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-100 text-slate-800 pb-24">
+
+  <!-- Header -->
+  <header class="bg-blue-700 text-white p-4 shadow sticky top-0 z-30 flex flex-wrap justify-between items-center gap-2">
+    <div>
+      <h1 class="text-lg font-bold">Verifikasi Hologram</h1>
+      <p class="text-xs text-blue-200">Wings Group Promo App</p>
+    </div>
+    <div>
+      <a href="/api/download-excel" class="bg-emerald-600 hover:bg-emerald-700 px-3 py-2 rounded-lg flex items-center gap-1 font-bold text-xs">
+        <i class="fa-solid fa-file-excel"></i> Rekap Excel
+      </a>
+    </div>
+  </header>
+
+  <!-- Panel Filter & Upload -->
+  <div class="max-w-6xl mx-auto p-4 space-y-4">
+    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap gap-3 items-center justify-between">
+      
+      <div class="flex flex-wrap gap-2 flex-1 items-center">
+        <input type="text" id="filterSales" placeholder="Cari Nama / Kode Salesman..." class="border rounded-lg px-3 py-2 text-xs w-60">
+        <input type="text" id="filterDate" placeholder="Tanggal (contoh: 23.10.2026)" class="border rounded-lg px-3 py-2 text-xs w-48">
+        <button onclick="loadData()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold">
+          <i class="fa-solid fa-magnifying-glass"></i> Filter
+        </button>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <input type="file" id="masterSalesFile" class="hidden" accept=".xlsx, .xls" onchange="uploadMasterSales(event)">
+        <button onclick="document.getElementById('masterSalesFile').click()" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1">
+          <i class="fa-solid fa-users"></i> 1. Upload Master Salesman
+        </button>
+        
+        <input type="file" id="promoFile" class="hidden" accept=".xlsx, .xls" onchange="uploadPromoExcel(event)">
+        <button onclick="document.getElementById('promoFile').click()" class="bg-blue-800 hover:bg-blue-900 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1">
+          <i class="fa-solid fa-file-invoice"></i> 2. Upload Data Promo
+        </button>
+      </div>
+    </div>
+
+    <!-- Tab Pilihan Kategori -->
+    <div class="flex border-b border-slate-200 gap-2 text-xs font-bold">
+      <button onclick="setTab('semua')" id="tab-semua" class="py-2.5 px-4 border-b-2 border-blue-600 text-blue-700 flex items-center gap-2">
+        <i class="fa-solid fa-list"></i> Semua Data <span id="count-semua" class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full text-[10px]">0</span>
+      </button>
+      <button onclick="setTab('selisih')" id="tab-selisih" class="py-2.5 px-4 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2">
+        <i class="fa-solid fa-triangle-exclamation text-rose-500"></i> Perlu Selesai Selisih <span id="count-selisih" class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full text-[10px]">0</span>
+      </button>
+      <button onclick="setTab('selesai')" id="tab-selesai" class="py-2.5 px-4 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2">
+        <i class="fa-solid fa-circle-check text-emerald-500"></i> Sudah Selesai / Cocok <span id="count-selesai" class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[10px]">0</span>
+      </button>
+    </div>
+
+    <!-- Container Kartu per Salesman -->
+    <div id="dataContainer" class="space-y-5"></div>
+  </div>
+
+  <script>
+    let globalGroups = [];
+    let currentTab = 'semua';
+
+    function setTab(tab) {
+      currentTab = tab;
+      
+      const tabs = ['semua', 'selisih', 'selesai'];
+      tabs.forEach(t => {
+        const el = document.getElementById(`tab-${t}`);
+        if(t === tab) {
+          el.className = "py-2.5 px-4 border-b-2 border-blue-600 text-blue-700 flex items-center gap-2";
+        } else {
+          el.className = "py-2.5 px-4 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2";
+        }
+      });
+
+      renderGroups();
+    }
+
+    async function loadData() {
+      const sales = document.getElementById('filterSales').value;
+      const date = document.getElementById('filterDate').value;
+      let url = '/api/data-grouped?';
+      if(sales) url += `salesman=${encodeURIComponent(sales)}&`;
+      if(date) url += `tanggal=${encodeURIComponent(date)}`;
+      
+      const res = await fetch(url);
+      const groups = await res.json();
+      globalGroups = groups;
+      renderGroups();
+    }
+
+    function renderGroups() {
+      const container = document.getElementById('dataContainer');
+      container.innerHTML = '';
+
+      let totalSemua = 0;
+      let totalPerluSelesai = 0;
+      let totalSelesai = 0;
+
+      globalGroups.forEach(grp => {
+        grp.items.forEach(it => {
+          totalSemua++;
+          const diff = it.fisik_real - it.setor_hologram;
+          if (diff !== 0 && it.selisih_selesai === 0) {
+            totalPerluSelesai++;
+          } else {
+            totalSelesai++;
+          }
+        });
+      });
+
+      document.getElementById('count-semua').innerText = totalSemua;
+      document.getElementById('count-selisih').innerText = totalPerluSelesai;
+      document.getElementById('count-selesai').innerText = totalSelesai;
+
+      const filteredGroups = [];
+
+      globalGroups.forEach((grp, gIdx) => {
+        let matchingItems = [];
+
+        grp.items.forEach((it, iIdx) => {
+          const diff = it.fisik_real - it.setor_hologram;
+          const isPendingDiff = (diff !== 0 && it.selisih_selesai === 0);
+
+          if (currentTab === 'semua') {
+            matchingItems.push({ item: it, origIdx: iIdx });
+          } else if (currentTab === 'selisih' && isPendingDiff) {
+            matchingItems.push({ item: it, origIdx: iIdx });
+          } else if (currentTab === 'selesai' && !isPendingDiff) {
+            matchingItems.push({ item: it, origIdx: iIdx });
+          }
+        });
+
+        if (matchingItems.length > 0) {
+          filteredGroups.push({ grp: grp, gIdx: gIdx, filteredItems: matchingItems });
+        }
+      });
+
+      if(filteredGroups.length === 0) {
+        let emptyMsg = "Belum ada data verifikasi promo.";
+        if (currentTab === 'selisih') emptyMsg = "Tidak ada selisih yang tertunda! Semua selisih sudah diselesaikan atau data cocok.";
+        if (currentTab === 'selesai') emptyMsg = "Belum ada data yang diselesaikan atau cocok.";
+
+        container.innerHTML = `
+          <div class="bg-white p-8 text-center text-slate-500 rounded-xl border">
+            <i class="fa-solid fa-circle-check text-3xl mb-2 text-emerald-500"></i>
+            <p class="font-medium">${emptyMsg}</p>
+          </div>
+        `;
+        return;
+      }
+
+      filteredGroups.forEach(({ grp, gIdx, filteredItems }) => {
+        let totalSetor = 0;
+        let totalFisik = 0;
+
+        filteredItems.forEach(({ item }) => {
+          totalSetor += item.setor_hologram;
+          totalFisik += item.fisik_real;
+        });
+
+        const totalSelisih = totalFisik - totalSetor;
+        const cardBg = totalSelisih === 0 ? 'bg-white border-slate-200' : 'bg-rose-50/40 border-rose-300';
+        const badgeColor = totalSelisih === 0 ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white';
+
+        const card = document.createElement('div');
+        card.className = `p-4 sm:p-5 rounded-2xl border shadow-sm ${cardBg} space-y-4`;
+        
+        let rowsHtml = filteredItems.map(({ item, origIdx }) => {
+          const diff = item.fisik_real - item.setor_hologram;
+          const diffColor = diff === 0 ? 'text-emerald-600' : 'text-rose-600';
+
+          return `
+            <tr class="border-b border-slate-100 hover:bg-slate-50/80">
+              <td class="py-2.5 px-3">
+                <div class="font-bold text-slate-900 text-xs">${item.deskripsi_promo}</div>
+                <div class="text-[11px] text-slate-500 font-medium">
+                  ${item.promo_type_code ? `<span class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 font-bold mr-1">${item.promo_type_code}</span>` : ''}
+                  ${item.brand_id ? `Brand: ${item.brand_id}` : ''}
+                </div>
+              </td>
+              <td class="py-2.5 px-2 text-center text-xs font-semibold text-slate-500">${item.jumlah_claim}</td>
+              <td class="py-2.5 px-2 text-center text-xs font-extrabold text-slate-800">${item.setor_hologram}</td>
+              <td class="py-2.5 px-2 text-center">
+                <input type="number" id="fisik-${gIdx}-${origIdx}" value="${item.fisik_real}" 
+                  class="w-16 border rounded-lg px-2 py-1 text-center font-bold text-xs text-blue-900 bg-blue-50 focus:outline-blue-500"
+                  oninput="recalcGroup(${gIdx})">
+              </td>
+              <td class="py-2.5 px-2 text-center font-extrabold text-xs ${diffColor}" id="diff-${gIdx}-${origIdx}">
+                ${diff}
+              </td>
+              <td class="py-2.5 px-2 text-center">
+                <label class="inline-flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" id="selesai-${gIdx}-${origIdx}" ${item.selisih_selesai ? 'checked' : ''} class="w-4 h-4 rounded text-blue-600">
+                  <span class="text-[10px] text-slate-500">Selesai</span>
+                </label>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        card.innerHTML = `
+          <div class="flex flex-wrap justify-between items-start gap-2 border-b pb-3 border-slate-200">
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-bold px-2.5 py-0.5 rounded bg-blue-100 text-blue-800">${grp.kode_salesman}</span>
+                <span class="text-sm font-bold text-slate-900">${grp.nama_salesman}</span>
+                <span class="text-xs text-slate-500">• Spv: <b>${grp.nama_supervisor}</b></span>
+              </div>
+              <div class="text-xs text-slate-500 mt-1">
+                Tanggal Posting: <span class="font-bold text-slate-700">${grp.tanggal_posting}</span> • 
+                Item Ditampilkan: <span class="font-bold text-slate-700">${filteredItems.length} promo</span>
+              </div>
+            </div>
+            
+            <div id="badge-total-${gIdx}" class="text-xs px-3 py-1 rounded-full font-bold ${badgeColor}">
+              ${totalSelisih === 0 ? 'Semua Cocok (0)' : 'Total Selisih: ' + totalSelisih}
+            </div>
+          </div>
+
+          <div class="overflow-x-auto bg-white rounded-xl border border-slate-200">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 text-[11px] font-bold text-slate-600 border-b">
+                  <th class="py-2 px-3">Deskripsi Promo</th>
+                  <th class="py-2 px-2 text-center">Claim</th>
+                  <th class="py-2 px-2 text-center">Setor</th>
+                  <th class="py-2 px-2 text-center text-blue-700">Fisik (Real)</th>
+                  <th class="py-2 px-2 text-center">Selisih</th>
+                  <th class="py-2 px-2 text-center">Penyelesaian</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 pt-1">
+            <label class="flex items-center gap-1.5 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 text-xs">
+              <input type="checkbox" id="rapi-${gIdx}" ${grp.kerapian_claim ? 'checked' : ''} class="w-4 h-4 rounded text-blue-600">
+              <span class="font-medium">Kerapian Claim</span>
+            </label>
+
+            <input type="text" id="ket-${gIdx}" placeholder="Keterangan untuk salesman ini..." value="${grp.keterangan || ''}" 
+              class="border rounded-lg px-3 py-2 text-xs flex-1 min-w-[200px] bg-white">
+            
+            <label class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded-lg text-xs cursor-pointer flex items-center gap-1 font-bold">
+              <i class="fa-solid fa-camera"></i> Bukti Foto
+              <input type="file" id="foto-${gIdx}" class="hidden" accept="image/*">
+            </label>
+
+            <button onclick="simpanGroup(${gIdx})" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold">
+              <i class="fa-solid fa-floppy-disk"></i> Simpan
+            </button>
+
+            <button onclick="shareWAGroup(${gIdx})" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1">
+              <i class="fa-brands fa-whatsapp"></i> Share WA
+            </button>
+          </div>
+
+          ${grp.foto_path ? `<div class="text-xs text-blue-600"><a href="${grp.foto_path}" target="_blank" class="underline font-semibold"><i class="fa-solid fa-image"></i> Lihat Foto Bukti Terunggah</a></div>` : ''}
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function recalcGroup(gIdx) {
+      const grp = globalGroups[gIdx];
+      let totalSetor = 0;
+      let totalFisik = 0;
+
+      grp.items.forEach((it, iIdx) => {
+        const inputFisik = document.getElementById(`fisik-${gIdx}-${iIdx}`);
+        const fisikVal = inputFisik ? (parseInt(inputFisik.value) || 0) : it.fisik_real;
+        const diff = fisikVal - it.setor_hologram;
+        
+        const elDiff = document.getElementById(`diff-${gIdx}-${iIdx}`);
+        if(elDiff) {
+          elDiff.innerText = diff;
+          elDiff.className = `py-2.5 px-2 text-center font-extrabold text-xs ${diff === 0 ? 'text-emerald-600' : 'text-rose-600'}`;
+        }
+
+        totalSetor += it.setor_hologram;
+        totalFisik += fisikVal;
+      });
+
+      const totalSelisih = totalFisik - totalSetor;
+      const badge = document.getElementById(`badge-total-${gIdx}`);
+      if(badge) {
+        badge.innerText = totalSelisih === 0 ? 'Semua Cocok (0)' : 'Total Selisih: ' + totalSelisih;
+        badge.className = `text-xs px-3 py-1 rounded-full font-bold ${totalSelisih === 0 ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`;
+      }
+    }
+
+    async function simpanGroup(gIdx) {
+      const grp = globalGroups[gIdx];
+      const updatedItems = grp.items.map((it, iIdx) => {
+        const inputFisik = document.getElementById(`fisik-${gIdx}-${iIdx}`);
+        const checkSelesai = document.getElementById(`selesai-${gIdx}-${iIdx}`);
+
+        const fisik = inputFisik ? (parseInt(inputFisik.value) || 0) : it.fisik_real;
+        const selesai = checkSelesai ? (checkSelesai.checked ? 1 : 0) : it.selisih_selesai;
+
+        return {
+          id: it.id,
+          setor_hologram: it.setor_hologram,
+          fisik_real: fisik,
+          selisih_selesai: selesai
+        };
+      });
+
+      const form = new FormData();
+      form.append('items_json', JSON.stringify(updatedItems));
+      form.append('kerapian_claim', document.getElementById(`rapi-${gIdx}`).checked ? 1 : 0);
+      form.append('keterangan', document.getElementById(`ket-${gIdx}`).value);
+
+      const fotoFile = document.getElementById(`foto-${gIdx}`).files[0];
+      if (fotoFile) form.append('foto', fotoFile);
+
+      const res = await fetch('/api/save-group', { method: 'POST', body: form });
+      if(res.ok) {
+        alert('Data berhasil disimpan!');
+        loadData();
+      } else {
+        alert('Gagal menyimpan.');
+      }
+    }
+
+    function shareWAGroup(gIdx) {
+      const grp = globalGroups[gIdx];
+      const ket = document.getElementById(`ket-${gIdx}`).value;
+      const rapi = document.getElementById(`rapi-${gIdx}`).checked ? 'Rapi' : 'Tidak Rapi';
+
+      let text = `*LAPORAN VERIFIKASI PROMO WINGS*%0A` +
+        `• Salesman: ${grp.kode_salesman} - ${grp.nama_salesman}%0A` +
+        `• Supervisor: ${grp.nama_supervisor}%0A` +
+        `• Tgl Posting: ${grp.tanggal_posting}%0A` +
+        `• Kerapian Claim: ${rapi}%0A` +
+        `--------------------------------%0A` +
+        `*Rincian Fisik vs Setor:*%0A`;
+
+      grp.items.forEach((it, iIdx) => {
+        const inputFisik = document.getElementById(`fisik-${gIdx}-${iIdx}`);
+        const elDiff = document.getElementById(`diff-${gIdx}-${iIdx}`);
+
+        const fisikVal = inputFisik ? inputFisik.value : it.fisik_real;
+        const diffVal = elDiff ? elDiff.innerText : (it.fisik_real - it.setor_hologram);
+
+        text += `▪ *${it.deskripsi_promo}*%0A   Setor: ${it.setor_hologram} | Fisik: ${fisikVal} | Selisih: ${diffVal}%0A`;
+      });
+
+      if(ket) text += `--------------------------------%0A• Keterangan: ${ket}%0A`;
+
+      window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+    }
+
+    async function uploadMasterSales(e) {
+      const file = e.target.files[0];
+      if(!file) return;
+      const form = new FormData();
+      form.append('file', file);
+      
+      try {
+        const res = await fetch('/api/upload-master-salesman', { method: 'POST', body: form });
+        const result = await res.json();
+        if(res.ok) {
+          alert(`Master Salesman berhasil disimpan! (${result.total_salesman} data)`);
+          loadData();
+        } else {
+          alert(result.message || 'Gagal mengunggah master salesman.');
+        }
+      } catch (err) {
+        alert('Terjadi kesalahan koneksi server.');
+      }
+      e.target.value = '';
+    }
+
+    async function uploadPromoExcel(e) {
+      const file = e.target.files[0];
+      if(!file) return;
+
+      const reset = confirm("Ganti/timpa data promo yang lama dengan file baru ini?\n\n• Klik OK: Hapus data lama dan isi yang baru.\n• Klik CANCEL: Tambahkan di bawah data yang sudah ada.");
+      
+      const form = new FormData();
+      form.append('file', file);
+      form.append('reset', reset ? 'true' : 'false');
+
+      try {
+        const res = await fetch('/api/upload-excel', { method: 'POST', body: form });
+        const result = await res.json();
+        if(res.ok) {
+          alert(`Berhasil! ${result.total_rows} baris promo berhasil dimuat.`);
+          loadData();
+        } else {
+          alert(result.message || 'Gagal mengunggah file promo.');
+        }
+      } catch (err) {
+        alert('Terjadi kesalahan koneksi server.');
+      }
+      e.target.value = '';
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
